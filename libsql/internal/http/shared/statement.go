@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/antlr4-go/antlr/v4"
 	"github.com/WillowWorks-io/libsql-client-go/sqliteparser"
 	"github.com/WillowWorks-io/libsql-client-go/sqliteparserutils"
+	"github.com/antlr4-go/antlr/v4"
 )
 
 type ParamsInfo struct {

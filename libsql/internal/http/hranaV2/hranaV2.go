@@ -94,13 +94,68 @@ type hranaV2Conn struct {
 	replicationIndex    uint64
 }
 
-func (h *hranaV2Conn) Ping() error {
-	return h.PingContext(context.Background())
+// IsValid implements driver.Validator so database/sql can tell whether this
+// connection is still usable BEFORE handing it to the next caller.
+//
+// This matters more here than on a local driver. On the remote HTTP transport
+// the server closes the Hrana stream after each statement (streams are
+// non-interactive unless a transaction is open, libsql#925), so a connection is
+// commonly spent the moment its query returns. Without a Validator,
+// database/sql's validateConnection assumes every returned connection is
+// healthy and files it back into the pool; the next caller to draw it fails
+// with "stream is closed: driver: bad connection".
+//
+// That failure is usually invisible, because DB.retry makes two attempts with
+// cachedOrNewConn and then one with alwaysNewConn, which opens something fresh.
+// It becomes visible the moment the pool saturates: past MaxOpenConns,
+// alwaysNewConn cannot open anything, so it queues and putConnDBLocked hands it
+// the next connection returned by another goroutine -- which is spent too. All
+// three attempts fail and the error surfaces to the caller. Applications see
+// this as intermittent 500s on their widest fan-out, at a concurrency level far
+// below anything Turso itself struggles with.
+//
+// Reporting the truth here lets putConn close a spent connection instead of
+// recycling it, and costs nothing: this driver already opens roughly one
+// physical connection per query, and the connection that actually persists is
+// the TCP+TLS one net/http pools underneath.
+//
+// A connection inside an open transaction keeps its stream, so it stays valid.
+// Compile-time proof that this connection advertises the optional interfaces
+// database/sql relies on for pool hygiene. Both were missing before this fork:
+// without Validator the pool recycles spent streams, and without Pinger
+// DB.Ping() never reaches the server.
+var (
+	_ driver.Validator = (*hranaV2Conn)(nil)
+	_ driver.Pinger    = (*hranaV2Conn)(nil)
+)
+
+func (h *hranaV2Conn) IsValid() bool {
+	return !h.streamClosed
 }
 
-func (h *hranaV2Conn) PingContext(ctx context.Context) error {
+// Ping implements driver.Pinger.
+//
+// The signature is deliberate. driver.Pinger requires exactly
+// `Ping(ctx context.Context) error`; this type previously offered `Ping() error`
+// plus `PingContext(ctx) error`, and matched NEITHER. database/sql only forwards
+// a ping when the driver connection satisfies driver.Pinger, so DB.Ping()
+// silently verified nothing over the network -- it returned as soon as it could
+// take a connection from the pool. Measured against Turso: a Ping returned in
+// 2us where a real query took 48.8ms.
+//
+// That quietly breaks every keepalive built on DB.Ping(), which is the usual way
+// to hold a suspending instance awake.
+//
+// hranaV2Conn is an internal type, so tightening this signature cannot break an
+// external caller.
+func (h *hranaV2Conn) Ping(ctx context.Context) error {
 	_, err := h.executeStmt(ctx, "SELECT 1", nil, false)
 	return err
+}
+
+// PingContext is retained so callers holding this type directly keep working.
+func (h *hranaV2Conn) PingContext(ctx context.Context) error {
+	return h.Ping(ctx)
 }
 
 func (h *hranaV2Conn) Prepare(query string) (driver.Stmt, error) {
