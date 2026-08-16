@@ -1,0 +1,10 @@
+# Renders the "Sponsor" button on this repository.
+#
+# This points at a personal GitHub Sponsors listing rather than an
+# organisation one: org-level Sponsors needs separate enrollment (Stripe
+# Connect plus org verification), and WillowWorks-io is not verified.
+#
+# The button appears once the listing at https://github.com/sponsors is live.
+# Until then this file is inert -- harmless, and it means enabling sponsorship
+# is a checkout flow rather than another commit.
+github: [willmadison]

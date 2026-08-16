@@ -93,6 +93,35 @@ please open an issue, otherwise it will likely be removed.
 Embedded replicas are out of scope — that is what `go-libsql` and its cgo
 bindings are for.
 
+## Status and maintenance
+
+**Actively maintained.** This is not a drive-by fork.
+
+Turso is production infrastructure for everything WillowWorks builds, so this
+client is a dependency we run in anger rather than one we publish and forget.
+Bugs that affect us get fixed here first, and CI runs on every push against a
+real `libsql-server` container.
+
+What that commits to:
+
+- **Correctness fixes and Turso Cloud compatibility.** If the Hrana wire
+  protocol shifts and this client breaks, fixing it is not optional for us.
+- **Issues get a reply.** Not necessarily a fix, but an honest answer about
+  whether it is in scope and whether anyone is working on it.
+- **Semver, and no surprise breaks.** The API is upstream's; keeping it that way
+  is a feature, since it makes migrating a module path swap.
+
+What it does not commit to:
+
+- **Embedded replicas.** Out of scope, permanently. That needs cgo and
+  [`go-libsql`](https://github.com/tursodatabase/go-libsql) already does it.
+- **Feature parity with whatever Turso ships next.** If Turso Cloud moves off
+  Hrana entirely, this client's job ends and the README will say so plainly
+  rather than quietly rotting.
+
+If you are depending on this and something is missing, open an issue -- knowing
+who is out there is what tells us where to spend effort.
+
 ## Credit
 
 All original work is by the libSQL authors and 30 contributors, MIT licensed,
