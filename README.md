@@ -1,10 +1,105 @@
-> [!WARNING]
-> **This repository is deprecated.**
->
-> - For [Turso Cloud](https://turso.tech), use [go-libsql](https://github.com/tursodatabase/go-libsql) which provides better performance and support for embedded replicas.
-> - For a Go driver for Turso Database, consider using [turso-go](https://github.com/tursodatabase/turso-go).
+# libsql-client-go
+
+**A maintained, pure-Go libSQL/Hrana client for Turso Cloud.** No cgo, no native
+libraries, builds as a static binary on distroless.
+
+This is a fork of [`tursodatabase/libsql-client-go`](https://github.com/tursodatabase/libsql-client-go),
+which upstream deprecated in favour of [`go-libsql`](https://github.com/tursodatabase/go-libsql).
+That successor requires cgo, which is a hard blocker for anyone shipping
+`CGO_ENABLED=0` static binaries, and buys nothing for a remote-only client that
+never touches an embedded replica. Upstream issue
+[#141](https://github.com/tursodatabase/libsql-client-go/issues/141) is a user
+making exactly that objection.
+
+So this fork exists to keep the pure-Go path alive, and to fix the bugs upstream
+is no longer accepting patches for.
+
+## What is fixed here
+
+Two optional `database/sql` interfaces the driver never advertised. Both
+omissions appear accidental rather than considered: `driver.Validator` has never
+appeared anywhere in upstream's history, and the PR that added ping states in its
+first line that the methods "satisfy the sql driver interface", which they do not.
+
+**`driver.Validator` — the connection pool recycled dead connections.**
+On the remote HTTP transport the server closes the Hrana stream after each
+statement, so a connection is spent the moment its query returns. Without a
+Validator, `database/sql` assumes every returned connection is healthy and pools
+it; the next caller fails with `stream is closed: driver: bad connection`.
+
+`DB.retry` hides this most of the time — two attempts with `cachedOrNewConn`,
+then one with `alwaysNewConn` that opens something fresh. It stops hiding it
+once the pool saturates: past `MaxOpenConns`, `alwaysNewConn` cannot open
+anything, so it queues and is handed the next connection another goroutine
+returns, which is also spent. All three attempts fail and the error reaches the
+caller. **The symptom is intermittent 500s on your widest fan-out**, at a
+concurrency level far below anything Turso itself strains at — the service
+benchmarks clean to 64 concurrent at 422 q/s with zero errors. It is easy to
+misread as a Turso limit. It is not one.
+
+**`driver.Pinger` — `DB.Ping()` never reached the server.**
+The interface requires exactly `Ping(ctx context.Context) error`. The driver
+offered `Ping() error` and `PingContext(ctx) error`, matching neither, so
+`database/sql` detected no Pinger and `DB.Ping()` returned as soon as it could
+take a connection from the pool — verifying nothing over the network. Measured:
+a ping returned in **2µs** where a real query took **48.8ms**. If you built a
+keepalive on `DB.Ping()` to hold a suspending instance awake, it was doing
+nothing.
+
+## Install
+
+```
+go get github.com/WillowWorks-io/libsql-client-go
+```
+
+```go
+import _ "github.com/WillowWorks-io/libsql-client-go/libsql"
+
+db, err := sql.Open("libsql", "libsql://your-db.turso.io?authToken=...")
+```
+
+Migrating from upstream is a path swap and nothing else — the package layout and
+API are unchanged:
+
+```
+s|github.com/tursodatabase/libsql-client-go|github.com/WillowWorks-io/libsql-client-go|
+```
+
+## One more thing worth knowing
+
+`http.Transport.MaxIdleConnsPerHost` defaults to **2**, and this driver sends
+every query to one host through `http.DefaultClient`. Past two concurrent
+queries the surplus connections cannot be kept idle, so each subsequent query
+pays a full TCP+TLS handshake (~200ms) instead of one round trip (~50ms). This
+lands hardest on fan-out workloads. Raising it is worth more than any
+`database/sql` pool setting:
+
+```go
+if t, ok := http.DefaultTransport.(*http.Transport); ok {
+    t.MaxIdleConnsPerHost = 32
+}
+```
+
+Measured effect: p50 69.7ms → 53.2ms at 8-wide, 193ms → 116.5ms at 32-wide.
+
+## Scope
+
+Remote Turso Cloud over HTTP is what this fork supports and tests. The `ws://`
+transport is inherited but effectively dead — the driver negotiates only
+`hrana1` and Turso now rejects it (`expected handshake response status code 101
+but got 400`). It is retained for self-hosted `sqld` users; if you rely on it,
+please open an issue, otherwise it will likely be removed.
+
+Embedded replicas are out of scope — that is what `go-libsql` and its cgo
+bindings are for.
+
+## Credit
+
+All original work is by the libSQL authors and 30 contributors, MIT licensed,
+full history preserved. See [LICENSE](./LICENSE).
 
 ---
+
 
 <p align="center">
   <a href="https://docs.turso.tech/sdk/go/quickstart">
