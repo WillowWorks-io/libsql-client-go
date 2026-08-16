@@ -1,13 +1,13 @@
-module github.com/tursodatabase/libsql-client-go/examples
+module github.com/WillowWorks-io/libsql-client-go/examples
 
 go 1.21
 
 toolchain go1.21.0
 
-replace github.com/tursodatabase/libsql-client-go => ../
+replace github.com/WillowWorks-io/libsql-client-go => ../
 
 require (
-	github.com/tursodatabase/libsql-client-go v0.0.0-20231115142106-b215c7de15bf
+	github.com/WillowWorks-io/libsql-client-go v0.0.0-20231115142106-b215c7de15bf
 	modernc.org/sqlite v1.28.0
 )
 

@@ -3,7 +3,7 @@ package http
 import (
 	"database/sql/driver"
 
-	"github.com/tursodatabase/libsql-client-go/libsql/internal/http/hranaV2"
+	"github.com/WillowWorks-io/libsql-client-go/libsql/internal/http/hranaV2"
 )
 
 func Connect(url, jwt, host string, schemaDb bool, remoteEncryptionKey string, requestHeaders map[string]string) driver.Conn {

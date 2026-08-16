@@ -9,8 +9,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/tursodatabase/libsql-client-go/libsql/internal/http"
-	"github.com/tursodatabase/libsql-client-go/libsql/internal/ws"
+	"github.com/WillowWorks-io/libsql-client-go/libsql/internal/http"
+	"github.com/WillowWorks-io/libsql-client-go/libsql/internal/ws"
 )
 
 type config struct {

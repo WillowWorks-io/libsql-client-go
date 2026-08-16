@@ -9,9 +9,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/tursodatabase/libsql-client-go/libsql"
+	"github.com/WillowWorks-io/libsql-client-go/libsql"
 
-	_ "github.com/tursodatabase/libsql-client-go/libsql"
+	_ "github.com/WillowWorks-io/libsql-client-go/libsql"
 )
 
 // setupDB sets up a test database by connecting to libsql server and creates a `test` table

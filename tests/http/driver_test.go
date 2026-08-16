@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tursodatabase/libsql-client-go/libsql"
+	"github.com/WillowWorks-io/libsql-client-go/libsql"
 
 	"golang.org/x/sync/errgroup"
 
-	_ "github.com/tursodatabase/libsql-client-go/libsql"
+	_ "github.com/WillowWorks-io/libsql-client-go/libsql"
 )
 
 type T struct {

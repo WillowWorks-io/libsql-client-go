@@ -14,10 +14,10 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/tursodatabase/libsql-client-go/sqliteparserutils"
+	"github.com/WillowWorks-io/libsql-client-go/sqliteparserutils"
 
-	"github.com/tursodatabase/libsql-client-go/libsql/internal/hrana"
-	"github.com/tursodatabase/libsql-client-go/libsql/internal/http/shared"
+	"github.com/WillowWorks-io/libsql-client-go/libsql/internal/hrana"
+	"github.com/WillowWorks-io/libsql-client-go/libsql/internal/http/shared"
 )
 
 var commitHash string
@@ -25,7 +25,7 @@ var commitHash string
 func init() {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, module := range info.Deps {
-			if module.Path == "github.com/tursodatabase/libsql-client-go" {
+			if module.Path == "github.com/WillowWorks-io/libsql-client-go" {
 				parts := strings.Split(module.Version, "-")
 				if len(parts) == 3 {
 					commitHash = parts[2][:6]

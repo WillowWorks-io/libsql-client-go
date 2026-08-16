@@ -6,8 +6,8 @@ import (
 
 	"github.com/antlr4-go/antlr/v4"
 
-	"github.com/tursodatabase/libsql-client-go/sqliteparser"
-	"github.com/tursodatabase/libsql-client-go/sqliteparserutils"
+	"github.com/WillowWorks-io/libsql-client-go/sqliteparser"
+	"github.com/WillowWorks-io/libsql-client-go/sqliteparserutils"
 )
 
 func generateSplitStatementExtraInfo(lastTokenType int, incompleteCreateTriggerStatement bool, incompleteMultilineComment bool) sqliteparserutils.SplitStatementExtraInfo {
