@@ -15,7 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go: [ '1.20', '>=1.21' ]
+        # Pinned, not floating. This was '>=1.21', which now resolves to Go 1.26
+        # while golangci-lint-action@v6 ships a linter built with 1.24 -- so it
+        # cannot typecheck the 1.26 standard library and the job fails on
+        # stdlib source, with nothing wrong in this repo. 1.20 is the floor
+        # go.mod declares; bump the ceiling deliberately alongside the linter.
+        go: [ '1.20', '1.24' ]
 
     services:
       sqld:
@@ -29,7 +34,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version-file: "go.mod"
+          # go-version wins over go-version-file; setting both is confusing, and
+          # the matrix is the thing we actually want to vary.
           cache: true
           go-version: ${{ matrix.go }}
 
@@ -39,8 +45,13 @@ jobs:
       - name: Install dependencies
         run: go get ./...
 
+      # sqliteparser is ANTLR-generated and full of unreachable code by
+      # construction, so it is excluded rather than fixed. Matched on the package
+      # suffix, NOT the full module path: the previous form hardcoded the
+      # upstream path and silently stopped excluding anything the moment this
+      # fork renamed the module, turning vet loose on 34k generated lines.
       - name: Vet
-        run: go vet -v $(go list ./... | grep -v "github.com/tursodatabase/libsql-client-go/sqliteparser$")
+        run: go vet -v $(go list ./... | grep -v "/sqliteparser$")
 
       - name: Install sqlclosecheck
         run: |
