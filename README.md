@@ -94,6 +94,31 @@ them would turn a config smell into a secret in your log store.
 The same precedence applies to `?tls=` and `WithTls`. A TLS setting merely
 *implied* by the URL scheme is not a conflict and is overridden quietly.
 
+## Never log the connection URL
+
+Turso embeds the auth token in the connection string, so the natural thing to
+write is the dangerous thing:
+
+```go
+return fmt.Errorf("opening database %q: %w", databaseURL, err) // leaks a live credential
+```
+
+That line writes a working token into whatever collects the error — log
+aggregator, error tracker, CI transcript, a terminal someone screenshots. It is
+easy to miss because the URL reads as configuration rather than a secret.
+
+Use `RedactURL`:
+
+```go
+return fmt.Errorf("opening database %q: %w", libsql.RedactURL(databaseURL), err)
+```
+
+It replaces `authToken` / `auth_token` / `jwt` and any userinfo password with
+`REDACTED`, keeps everything else so the message stays diagnostic, and refuses
+to return input it could not parse. As a backstop it scans the result for
+anything JWT-shaped — a token under an unrecognised parameter name — and
+withholds the URL entirely rather than hand it back.
+
 ## Optional: keep a suspending instance warm
 
 A Turso instance suspends when nothing queries it, and waking costs about a
