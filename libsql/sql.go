@@ -217,6 +217,17 @@ func (c config) connector(dbPath string) (driver.Connector, error) {
 		return nil, fmt.Errorf("unknown query parameter %#v", name)
 	}
 
+	// Everything recognised has been consumed above and anything else was just
+	// rejected, so nothing legitimate is being discarded here. Clearing it is
+	// still REQUIRED, not tidiness: the URL is used to build the request path,
+	// and a leftover query string produces a request for
+	// "v2/pipeline?authToken=..." -- which the server answers with
+	// "404 route not found", and which puts the token in the error message.
+	//
+	// Driver.Open has always done this. connector() did not need to while it
+	// rejected every query parameter; accepting them made the omission bite.
+	u.RawQuery = ""
+
 	if u.Scheme == "libsql" {
 		if c.tls == nil || *c.tls {
 			u.Scheme = "https"

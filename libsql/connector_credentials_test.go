@@ -28,8 +28,24 @@ const turso = "libsql://db-org.aws-us-east-1.turso.io"
 func TestNewConnectorAcceptsTokenInURL(t *testing.T) {
 	for _, param := range []string{"authToken", "auth_token", "jwt"} {
 		t.Run(param, func(t *testing.T) {
-			if _, err := NewConnector(turso + "?" + param + "=sometoken"); err != nil {
+			c, err := NewConnector(turso + "?" + param + "=sometoken")
+			if err != nil {
 				t.Fatalf("a URL carrying %s must be accepted, as Driver.Open accepts it: %v", param, err)
+			}
+			hc, ok := c.(httpConnector)
+			if !ok {
+				t.Fatalf("expected an httpConnector, got %T", c)
+			}
+			if hc.authToken != "sometoken" {
+				t.Errorf("token from %s not picked up: authToken = %q", param, hc.authToken)
+			}
+			// Accepting the parameter is only half of it: the URL is used to
+			// build the request path, so a token left in the query string turns
+			// every request into "v2/pipeline?authToken=..." and a 404 -- with
+			// the credential in the error. Constructing without error proves
+			// nothing here; the URL has to be clean.
+			if strings.Contains(hc.url, "sometoken") || strings.Contains(hc.url, "?") {
+				t.Errorf("credential left in the connector URL: %q", hc.url)
 			}
 		})
 	}
