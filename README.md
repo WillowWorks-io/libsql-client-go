@@ -65,6 +65,38 @@ API are unchanged:
 s|github.com/tursodatabase/libsql-client-go|github.com/WillowWorks-io/libsql-client-go|
 ```
 
+## Optional: keep a suspending instance warm
+
+A Turso instance suspends when nothing queries it, and waking costs about a
+second and a half — measured 49ms after 30s idle, 1.83s after 60s. The first
+request after a quiet stretch eats that, for reasons that have nothing to do
+with the query being run.
+
+`WithKeepAlive` holds the instance awake, and is **adaptive**: it issues a
+statement only when nothing else has, so it stays silent while real traffic is
+already keeping the database warm. On a usage-billed service, a blind ticker is
+waste you pay for.
+
+```go
+c, err := libsql.NewConnector(dsn, libsql.WithKeepAlive(25*time.Second))
+if err != nil { ... }
+
+db := sql.OpenDB(c)
+defer db.Close() // also stops the keepalive
+```
+
+Pick an interval under the suspend threshold, which measured between 30 and 60
+seconds; 25s leaves margin for a late tick.
+
+It is entirely **opt-in**. A connector built without it behaves exactly as
+before: no goroutine, no queries of its own. It is also ignored for `file:`
+databases and for a non-positive interval, so the same options can be passed for
+a local and a remote database without branching.
+
+Note the activity signal is taken at the connector, so it sees every query the
+application makes without any call site reporting in — and it is per connector,
+so one busy database will not keep another's instance from being tickled.
+
 ## One more thing worth knowing
 
 `http.Transport.MaxIdleConnsPerHost` defaults to **2**, and this driver sends

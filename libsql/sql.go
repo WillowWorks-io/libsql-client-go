@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/WillowWorks-io/libsql-client-go/libsql/internal/http"
 	"github.com/WillowWorks-io/libsql-client-go/libsql/internal/ws"
@@ -20,6 +21,7 @@ type config struct {
 	schemaDb            *bool
 	remoteEncryptionKey *string
 	requestHeaders      map[string]string
+	keepaliveInterval   *time.Duration
 }
 
 type Option interface {
@@ -220,7 +222,28 @@ func NewConnector(dbPath string, opts ...Option) (driver.Connector, error) {
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
-	return config.connector(dbPath)
+	c, err := config.connector(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return config.withKeepAlive(c), nil
+}
+
+// withKeepAlive decorates a remote connector when WithKeepAlive asked for it.
+//
+// Deliberately silent in the cases where it does not apply, rather than an
+// error: a caller wiring the interval to configuration should be able to pass
+// the same options for a local file: database and a remote one without
+// branching, and a keepalive against local disk is meaningless rather than
+// wrong. A non-positive interval disables it for the same reason.
+func (c config) withKeepAlive(inner driver.Connector) driver.Connector {
+	if c.keepaliveInterval == nil || *c.keepaliveInterval <= 0 {
+		return inner
+	}
+	if _, isFile := inner.(*fileConnector); isFile {
+		return inner
+	}
+	return newKeepaliveConnector(inner, *c.keepaliveInterval)
 }
 
 type httpConnector struct {
