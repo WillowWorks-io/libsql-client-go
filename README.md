@@ -65,6 +65,35 @@ API are unchanged:
 s|github.com/tursodatabase/libsql-client-go|github.com/WillowWorks-io/libsql-client-go|
 ```
 
+## Credentials: URL or option, and who wins
+
+The auth token may come from either the connection URL or an option:
+
+```go
+// both of these work
+libsql.NewConnector("libsql://db.turso.io?authToken=" + tok)
+libsql.NewConnector("libsql://db.turso.io", libsql.WithAuthToken(tok))
+```
+
+Upstream `NewConnector` **rejected** the first form outright — while
+`Driver.Open`, the other entry point to the same driver, accepted it. Since
+Turso issues connection strings with `?authToken=` in them, the rejected shape
+was the common one, and migrating from `sql.Open` to `NewConnector` failed at
+startup. Both are accepted here.
+
+**If both are given and they differ, the option wins.** A connection string is
+usually handed to a program by its platform — an injected secret, an env var —
+so the option is the half the caller can actually change; making them edit the
+URL first would defeat the point of having an option.
+
+The conflict is **logged at WARN via `slog`**, because the other way to end up
+here is a half-finished credential rotation, and that should not be discovered
+later as an auth failure. The values are never logged: a warning that printed
+them would turn a config smell into a secret in your log store.
+
+The same precedence applies to `?tls=` and `WithTls`. A TLS setting merely
+*implied* by the URL scheme is not a conflict and is overridden quietly.
+
 ## Optional: keep a suspending instance warm
 
 A Turso instance suspends when nothing queries it, and waking costs about a

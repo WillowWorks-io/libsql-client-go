@@ -1,6 +1,8 @@
 package libsql
 
 import (
+	"bytes"
+	"log/slog"
 	"strings"
 	"testing"
 )
@@ -47,15 +49,61 @@ func TestNewConnectorAcceptsAgreeingToken(t *testing.T) {
 	}
 }
 
-// Disagreement is reported rather than silently resolved: whichever one we
-// picked, the caller has a bug worth hearing about.
-func TestNewConnectorRejectsConflictingTokens(t *testing.T) {
-	_, err := NewConnector(turso+"?authToken=from-url", WithAuthToken("from-option"))
-	if err == nil {
-		t.Fatal("two different tokens must be an error, not a silent pick")
+// When the two disagree the OPTION wins. Connection strings often arrive from a
+// platform as an injected secret, so requiring the URL to be edited before an
+// option may be used would make the option useless exactly where it is needed.
+//
+// Asserting the resulting value, not merely the absence of an error: "no error"
+// would pass just as well if the URL's token had silently won.
+func TestOptionBeatsURLToken(t *testing.T) {
+	c, err := NewConnector(turso+"?authToken=from-url", WithAuthToken("from-option"))
+	if err != nil {
+		t.Fatalf("a disagreement is a warning, not an error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "conflicting auth tokens") {
-		t.Errorf("error should name the conflict, got: %v", err)
+	hc, ok := c.(httpConnector)
+	if !ok {
+		t.Fatalf("expected an httpConnector, got %T", c)
+	}
+	if hc.authToken != "from-option" {
+		t.Errorf("authToken = %q, want the WithAuthToken value to win", hc.authToken)
+	}
+}
+
+// The warning must never carry the credentials themselves, or a config smell
+// becomes a secret sitting in the log store.
+func TestConflictWarningOmitsTheTokens(t *testing.T) {
+	var buf bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	if _, err := NewConnector(turso+"?authToken=url-secret", WithAuthToken("option-secret")); err != nil {
+		t.Fatalf("NewConnector: %v", err)
+	}
+
+	logged := buf.String()
+	if !strings.Contains(logged, "WithAuthToken") {
+		t.Errorf("a conflict should be warned about; got: %q", logged)
+	}
+	for _, secret := range []string{"url-secret", "option-secret"} {
+		if strings.Contains(logged, secret) {
+			t.Errorf("the warning leaked a credential (%q): %s", secret, logged)
+		}
+	}
+}
+
+// Agreement is not a conflict and must stay quiet.
+func TestAgreeingTokenLogsNothing(t *testing.T) {
+	var buf bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	if _, err := NewConnector(turso+"?authToken=same", WithAuthToken("same")); err != nil {
+		t.Fatalf("NewConnector: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("identical values are not a conflict; logged: %s", buf.String())
 	}
 }
 
@@ -70,21 +118,35 @@ func TestNewConnectorAcceptsTlsInURL(t *testing.T) {
 	}
 }
 
-func TestNewConnectorRejectsConflictingTls(t *testing.T) {
-	_, err := NewConnector(turso+"?tls=1", WithTls(false))
-	if err == nil {
-		t.Fatal("URL and WithTls disagreeing must be an error")
+func TestOptionBeatsURLTls(t *testing.T) {
+	// tls=0 downgrades libsql:// to http, which requires an explicit port; the
+	// option overriding back to TLS is what keeps this on https.
+	c, err := NewConnector("libsql://db-org.turso.io:8080?tls=0", WithTls(true))
+	if err != nil {
+		t.Fatalf("a disagreement is a warning, not an error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "conflicting tls") {
-		t.Errorf("error should name the conflict, got: %v", err)
+	hc, ok := c.(httpConnector)
+	if !ok {
+		t.Fatalf("expected an httpConnector, got %T", c)
+	}
+	if !strings.HasPrefix(hc.url, "https://") {
+		t.Errorf("url = %q, want WithTls(true) to win over tls=0", hc.url)
 	}
 }
 
 // A scheme-derived TLS default must not be mistaken for the caller stating one,
 // or WithTls would appear to conflict with a URL that said nothing about TLS.
 func TestSchemeDefaultDoesNotConflictWithWithTls(t *testing.T) {
+	var buf bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
 	if _, err := NewConnector("libsql://db-org.turso.io:8080?authToken=t", WithTls(false)); err != nil {
-		t.Fatalf("WithTls with no tls= in the URL must not report a conflict: %v", err)
+		t.Fatalf("WithTls with no tls= in the URL must not be a conflict: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("a scheme-derived default is not the caller stating anything; logged: %s", buf.String())
 	}
 }
 

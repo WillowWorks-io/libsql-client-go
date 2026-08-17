@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -34,6 +35,15 @@ func (o option) apply(c *config) error {
 	return o(c)
 }
 
+// WithAuthToken sets the auth token.
+//
+// PRECEDENCE: the token may also be supplied in the connection URL as
+// ?authToken= (or auth_token / jwt). If both are given and they differ, THIS
+// OPTION WINS and the URL's token is ignored, with a warning logged via slog.
+// The values themselves are never logged.
+//
+// The option wins because a connection string is often handed to a program by
+// its platform, so the option is the half the caller can actually change.
 func WithAuthToken(authToken string) Option {
 	return option(func(o *config) error {
 		if o.authToken != nil {
@@ -47,6 +57,12 @@ func WithAuthToken(authToken string) Option {
 	})
 }
 
+// WithTls sets whether to use TLS.
+//
+// PRECEDENCE: tls may also be supplied in the connection URL as ?tls=0/1. If
+// both are given and they differ, THIS OPTION WINS and the URL's value is
+// ignored, with a warning logged via slog. A TLS setting merely implied by the
+// URL scheme is not a conflict and is overridden quietly.
 func WithTls(tls bool) Option {
 	return option(func(o *config) error {
 		if o.tls != nil {
@@ -147,29 +163,39 @@ func (c config) connector(dbPath string) (driver.Connector, error) {
 	// deployed. Refusing to parse a URL the sibling entry point parses is a bug,
 	// not a policy.
 	//
-	// So: parse them. An explicit option still wins, since it is the more
-	// specific instruction, and disagreeing sources are reported rather than
-	// silently resolved -- a caller passing two different tokens has a bug worth
-	// hearing about.
+	// So: parse them, and where a URL parameter and an option both supply the
+	// same setting, THE OPTION WINS. It is the more specific instruction, and it
+	// is the one a caller can actually change: connection strings often arrive
+	// from a platform as an injected secret or env var, so requiring the URL to
+	// be edited before an option may be used would make the option useless in
+	// exactly the case it is most needed.
+	//
+	// A conflict is not an error, but it is not silent either: it is logged at
+	// WARN, because the other way to arrive here is a half-finished credential
+	// rotation, and that should not be discovered later as an auth failure.
+	//
+	// The VALUES are never logged. These are credentials, and a warning that
+	// printed them would turn a config smell into a secret in the log store.
 	query := u.Query()
 
 	urlToken, err := extractJwt(&query)
 	if err != nil {
 		return nil, err
 	}
-	if urlToken != "" {
-		switch {
-		case c.authToken == nil:
-			c.authToken = &urlToken
-		case *c.authToken != urlToken:
-			return nil, fmt.Errorf("conflicting auth tokens: the URL and WithAuthToken disagree; pass one or the other")
-		}
+	switch {
+	case urlToken == "":
+	case c.authToken == nil:
+		c.authToken = &urlToken
+	case *c.authToken != urlToken:
+		slog.Warn("libsql: auth token given both in the connection URL and via WithAuthToken, and they differ; "+
+			"the WithAuthToken value is being used and the URL's is ignored",
+			slog.String("resolution", "option wins"))
 	}
 
-	// Note extractTls also supplies the scheme-derived default when the URL has
-	// no tls parameter, so "was it stated?" has to be captured before the call
-	// deletes it -- otherwise a scheme default would look like an explicit
-	// setting and could contradict WithTls for no reason.
+	// Same precedence for tls. extractTls must still be called even when WithTls
+	// was given, because it is what strips the parameter from the query -- the
+	// unknown-parameter check below would otherwise reject a URL for carrying a
+	// setting the caller legitimately overrode.
 	tlsStated := query.Has("tls")
 	urlTls, err := extractTls(&query, u.Scheme)
 	if err != nil {
@@ -179,7 +205,12 @@ func (c config) connector(dbPath string) (driver.Connector, error) {
 	case c.tls == nil:
 		c.tls = &urlTls
 	case tlsStated && *c.tls != urlTls:
-		return nil, fmt.Errorf("conflicting tls settings: the URL and WithTls disagree; pass one or the other")
+		// tlsStated matters: extractTls also returns the scheme-derived default,
+		// and a default disagreeing with WithTls is not a conflict worth warning
+		// about -- the caller never stated anything.
+		slog.Warn("libsql: tls given both in the connection URL and via WithTls, and they differ; "+
+			"the WithTls value is being used and the URL's is ignored",
+			slog.Bool("using", *c.tls))
 	}
 
 	for name := range query {

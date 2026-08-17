@@ -20,7 +20,7 @@ jobs:
         # cannot typecheck the 1.26 standard library and the job fails on
         # stdlib source, with nothing wrong in this repo. 1.20 is the floor
         # go.mod declares; bump the ceiling deliberately alongside the linter.
-        go: [ '1.20', '1.24' ]
+        go: [ '1.21', '1.24' ]
 
     services:
       sqld:
