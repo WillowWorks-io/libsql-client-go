@@ -136,18 +136,50 @@ func (c config) connector(dbPath string) (driver.Connector, error) {
 		return nil, fmt.Errorf("no sqlite driver present. Please import sqlite or sqlite3 driver")
 	}
 
+	// Credentials may arrive either in the URL or as options.
+	//
+	// This used to reject a URL carrying authToken/auth_token/jwt/tls outright,
+	// telling the caller to use WithAuthToken instead -- while Driver.Open, the
+	// other entry point to this same driver, happily accepted exactly that URL
+	// via extractJwt. Turso hands out connection strings with ?authToken= in
+	// them, so NewConnector rejected the format practically every caller has,
+	// and anyone migrating from sql.Open to NewConnector hit it the moment they
+	// deployed. Refusing to parse a URL the sibling entry point parses is a bug,
+	// not a policy.
+	//
+	// So: parse them. An explicit option still wins, since it is the more
+	// specific instruction, and disagreeing sources are reported rather than
+	// silently resolved -- a caller passing two different tokens has a bug worth
+	// hearing about.
 	query := u.Query()
-	if query.Has("auth_token") {
-		return nil, fmt.Errorf("'auth_token' usage forbidden. Please use 'WithAuthToken' option instead")
+
+	urlToken, err := extractJwt(&query)
+	if err != nil {
+		return nil, err
 	}
-	if query.Has("authToken") {
-		return nil, fmt.Errorf("'authToken' usage forbidden. Please use 'WithAuthToken' option instead")
+	if urlToken != "" {
+		switch {
+		case c.authToken == nil:
+			c.authToken = &urlToken
+		case *c.authToken != urlToken:
+			return nil, fmt.Errorf("conflicting auth tokens: the URL and WithAuthToken disagree; pass one or the other")
+		}
 	}
-	if query.Has("jwt") {
-		return nil, fmt.Errorf("'jwt' usage forbidden. Please use 'WithAuthToken' option instead")
+
+	// Note extractTls also supplies the scheme-derived default when the URL has
+	// no tls parameter, so "was it stated?" has to be captured before the call
+	// deletes it -- otherwise a scheme default would look like an explicit
+	// setting and could contradict WithTls for no reason.
+	tlsStated := query.Has("tls")
+	urlTls, err := extractTls(&query, u.Scheme)
+	if err != nil {
+		return nil, err
 	}
-	if query.Has("tls") {
-		return nil, fmt.Errorf("'tls' usage forbidden. Please use 'WithTls' option instead")
+	switch {
+	case c.tls == nil:
+		c.tls = &urlTls
+	case tlsStated && *c.tls != urlTls:
+		return nil, fmt.Errorf("conflicting tls settings: the URL and WithTls disagree; pass one or the other")
 	}
 
 	for name := range query {
